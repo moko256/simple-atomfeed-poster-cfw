@@ -1,50 +1,162 @@
-/**
- * Welcome to Cloudflare Workers!
- *
- * This is a template for a Scheduled Worker: a Worker that can run on a
- * configurable interval:
- * https://developers.cloudflare.com/workers/platform/triggers/cron-triggers/
- *
- * - Run `npm run dev` in your terminal to start a development server
- * - Open a browser tab at http://localhost:8787/ to see your worker in action
- * - Run `npm run deploy` to publish your worker
- *
- * Learn more at https://developers.cloudflare.com/workers/
- */
+import { parseAtom, Feed, Entry } from "./parse_atom"
+import { Channel, Item, parseRss2 } from "./parse_rss2";
+import { FEED_URL, POST_BODY_MIME_TYPE, POST_URL, generateFromAtom, generateFromRss2, generatePostBody } from "../generator";
+import {
+    ok,
+} from 'node:assert';
 
 export interface Env {
-	// Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
-	// MY_KV_NAMESPACE: KVNamespace;
-	//
-	// Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
-	// MY_DURABLE_OBJECT: DurableObjectNamespace;
-	//
-	// Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
-	// MY_BUCKET: R2Bucket;
-	//
-	// Example binding to a Service. Learn more at https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
-	// MY_SERVICE: Fetcher;
-	//
-	// Example binding to a Queue. Learn more at https://developers.cloudflare.com/queues/javascript-apis/
-	// MY_QUEUE: Queue;
-	//
-	// Example binding to a D1 Database. Learn more at https://developers.cloudflare.com/workers/platform/bindings/#d1-database-bindings
-	// DB: D1Database
+    // Example binding to KV. Learn more at https://developers.cloudflare.com/workers/runtime-apis/kv/
+    SIMPLE_ATOMFEED_POSTER_CFW_STATE_KV: KVNamespace;
+
+    // Example binding to Durable Object. Learn more at https://developers.cloudflare.com/workers/runtime-apis/durable-objects/
+    // MY_DURABLE_OBJECT: DurableObjectNamespace;
+    //
+    // Example binding to R2. Learn more at https://developers.cloudflare.com/workers/runtime-apis/r2/
+    // MY_BUCKET: R2Bucket;
+    //
+    // Example binding to a Service. Learn more at https://developers.cloudflare.com/workers/runtime-apis/service-bindings/
+    // MY_SERVICE: Fetcher;
+    //
+    // Example binding to a Queue. Learn more at https://developers.cloudflare.com/queues/javascript-apis/
+    // MY_QUEUE: Queue;
+    //
+    // Example binding to a D1 Database. Learn more at https://developers.cloudflare.com/workers/platform/bindings/#d1-database-bindings
+    // DB: D1Database
+}
+
+interface ProceedState {
+    lastDatePosted: number,
+}
+
+function proceed(lastState: ProceedState, responseText: string): [string[], ProceedState] {
+    const resultBody = responseText;
+
+    let posts: string[] | undefined;
+    let latestDate: number | undefined;
+
+    const rss = parseRss2(resultBody);
+    if (rss) {
+        const r = processRss2(lastState.lastDatePosted, rss);
+        posts = r[0];
+        latestDate = r[1];
+    } else {
+        const atom = parseAtom(resultBody);
+        if (atom) {
+            const r = processAtom(lastState.lastDatePosted, atom);
+            posts = r[0];
+            latestDate = r[1];
+        }
+    }
+
+    return [posts ?? [], { lastDatePosted: latestDate ?? Date.now() }]
+}
+
+function processRss2(lastDate: number, channel: Channel): [string[], number] {
+    let posts: string[] = [];
+    let latestDate: number = Date.now();
+
+    for (const item of Array.from(channel?.item ?? []).reverse()) {
+        ok(item?.pubDate?.["#text"]);
+        const date = Date.parse(item?.pubDate?.["#text"] ?? "");
+        if (date > lastDate.valueOf()) {
+            const text = generateFromRss2(channel, item);
+
+            latestDate = date;
+            posts.push(text);
+        }
+    }
+
+    return [posts, latestDate];
+}
+
+function processAtom(lastDate: number, feed: Feed): [string[], number] {
+    let posts: string[] = [];
+    let latestDate: number = Date.now();
+
+    for (const entry of Array.from(feed?.entry ?? []).reverse()) {
+        ok(entry?.published?.["#text"]);
+        const date = Date.parse(entry?.published?.["#text"] ?? "");
+        if (date > lastDate.valueOf()) {
+            const text = generateFromAtom(feed, entry);
+
+            latestDate = date;
+            posts.push(text);
+        }
+    }
+
+    return [posts, latestDate];
+}
+
+async function getAndPost(env: Env) {
+    try {
+
+        let newLastModified = null;
+
+
+        const requestHeaders = new Headers();
+        const lastModified = await env.SIMPLE_ATOMFEED_POSTER_CFW_STATE_KV.get("lastModified");
+        if (lastModified) {
+            requestHeaders.append("If-Modified-Since", new Date(parseInt(lastModified, 10)).toUTCString())
+        }
+        const response = await fetch(FEED_URL, { headers: requestHeaders, cf: { cacheEverything: false } },);
+
+        if (response.status == 200) {
+            console.log("Status 200: Got.");
+
+            const lastDate = await env.SIMPLE_ATOMFEED_POSTER_CFW_STATE_KV.get("lastDate");
+
+            // FOR TEST
+            // let lastDateNumber = Date.parse("Wed, 14 Feb 2024 17:28:38 +0000");
+
+            let lastDateNumber = Date.now();
+            if (lastDate) {
+                lastDateNumber = parseInt(lastDate, 10);
+            }
+
+            const result = proceed({ lastDatePosted: lastDateNumber }, await response.text());
+
+            for (const postMessage of result[0]) {
+                console.log("Posting: ", postMessage);
+
+                const postBody = generatePostBody(postMessage);
+
+                const requestHeaders = new Headers();
+                requestHeaders.append("Content-Type", POST_BODY_MIME_TYPE);
+
+                const postResponse = await fetch(POST_URL, { method: "POST", body: postBody, headers: requestHeaders });
+                if (!postResponse.ok) {
+                    console.log("Error: Post returns error: ", postResponse);
+                }
+            }
+
+            await env.SIMPLE_ATOMFEED_POSTER_CFW_STATE_KV.put("lastDate", result[1].lastDatePosted.toString(10));
+
+            newLastModified = response.headers.get("Last-Modified");
+        } else if (response.status == 304) {
+            console.log("Status 304: skipped.");
+            newLastModified = response.headers.get("Last-Modified");
+        } else {
+            console.log("Error: Feed returns error: ", response);
+        }
+
+
+        if (newLastModified) {
+            await env.SIMPLE_ATOMFEED_POSTER_CFW_STATE_KV.put("lastModified", Date.parse(newLastModified).toString());
+        }
+    } catch (e) {
+        console.log("Error: ", e);
+    }
 }
 
 export default {
-	// The scheduled handler is invoked at the interval set in our wrangler.toml's
-	// [[triggers]] configuration.
-	async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext): Promise<void> {
-		// A Cron Trigger can make requests to other endpoints on the Internet,
-		// publish to a Queue, query a D1 Database, and much more.
-		//
-		// We'll keep it simple and make an API call to a Cloudflare API:
-		let resp = await fetch('https://api.cloudflare.com/client/v4/ips');
-		let wasSuccessful = resp.ok ? 'success' : 'fail';
+    // FOR TEST
+    // async fetch(_request: Request, env: Env, _ctx: ExecutionContext) {
+    //     await getAndPost(env);
+    //     return new Response("HELLO!");
+    // },
 
-		// You could store this result in KV, write to a D1 Database, or publish to a Queue.
-		// In this template, we'll just log the result:
-		console.log(`trigger fired at ${event.cron}: ${wasSuccessful}`);
-	},
+    async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
+        await getAndPost(env);
+    },
 };

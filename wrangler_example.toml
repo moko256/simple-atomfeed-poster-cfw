@@ -1,9 +1,15 @@
 name = "simple-atomfeed-poster-cfw"
 main = "src/index.ts"
 compatibility_date = "2024-03-04"
+compatibility_flags = ["nodejs_compat"]
+
+
+kv_namespaces = [
+    { binding = "SIMPLE_ATOMFEED_POSTER_CFW_STATE_KV", id = "xxxxxxxxxx[REPLACE HERE]xxxxxxxxxx" },
+]
 
 # Cron Triggers
 # Docs: https://developers.cloudflare.com/workers/platform/triggers/cron-triggers/
 # Configuration: https://developers.cloudflare.com/workers/wrangler/configuration/#triggers
 [triggers]
-crons = ["* * * * *"] # * * * * * = run every minute
+crons = ["0 * * * *"] # * * * * * = run every minute

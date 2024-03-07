@@ -1,3 +1,7 @@
+# Project Specifies
+wrangler.toml
+generator.ts
+
 # Logs
 
 logs
