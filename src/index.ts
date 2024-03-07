@@ -150,6 +150,8 @@ async function getAndPost(env: Env) {
     }
 }
 
+const sleep = (second: number) => new Promise(resolve => setTimeout(resolve, second));
+
 export default {
     // FOR TEST
     // async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
@@ -162,6 +164,7 @@ export default {
     // },
 
     async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
+        await sleep(1 + Math.random() * 10);
         await getAndPost(env);
     },
 };
