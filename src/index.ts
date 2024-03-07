@@ -126,7 +126,7 @@ async function getAndPost(env: Env) {
 
                 const postResponse = await fetch(POST_URL, { method: "POST", body: postBody, headers: requestHeaders });
                 if (!postResponse.ok) {
-                    console.log("Error: Post returns error: ", postResponse);
+                    throw new Error("Error: Post returns error: " + postResponse.status.toString());
                 }
             }
 
@@ -137,23 +137,28 @@ async function getAndPost(env: Env) {
             console.log("Status 304: skipped.");
             newLastModified = response.headers.get("Last-Modified");
         } else {
-            console.log("Error: Feed returns error: ", response);
+            throw new Error("Error: Feed returns error: " + response.status.toString());
         }
 
 
         if (newLastModified) {
             await env.SIMPLE_ATOMFEED_POSTER_CFW_STATE_KV.put("lastModified", Date.parse(newLastModified).toString());
         }
-    } catch (e) {
-        console.log("Error: ", e);
+    } catch (e: any) {
+        console.log("Error: ", e.toString());
+        throw new Error("Error: " + e.toString());
     }
 }
 
 export default {
     // FOR TEST
-    // async fetch(_request: Request, env: Env, _ctx: ExecutionContext) {
-    //     await getAndPost(env);
-    //     return new Response("HELLO!");
+    // async fetch(request: Request, env: Env, _ctx: ExecutionContext) {
+    //     if (new URL(request.url).pathname == "/") {
+    //         // await getAndPost(env);
+    //         // return new Response("HELLO!");
+
+    //         return await fetch(FEED_URL);
+    //     }
     // },
 
     async scheduled(_event: ScheduledEvent, env: Env, _ctx: ExecutionContext): Promise<void> {
