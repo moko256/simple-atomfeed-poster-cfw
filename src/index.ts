@@ -1,6 +1,6 @@
-import { parseAtom, Feed, Entry } from "./parse_atom"
-import { Channel, Item, parseRss2 } from "./parse_rss2";
-import { FEED_URL, POST_BODY_MIME_TYPE, POST_URL, generateFromAtom, generateFromRss2, generatePostBody } from "../generator";
+import { parseAtom, Feed } from "./parse_atom"
+import { Channel, parseRss2 } from "./parse_rss2";
+import { FEED_URL, POST_BODY_MIME_TYPE, POST_URL, generateMessageFromAtom, generateMessageFromRss2, generatePostBody } from "../generator";
 import {
     ok,
 } from 'node:assert';
@@ -60,7 +60,7 @@ function processRss2(lastDate: number, channel: Channel): [string[], number] {
         ok(item?.pubDate?.["#text"]);
         const date = Date.parse(item?.pubDate?.["#text"] ?? "");
         if (date > lastDate.valueOf()) {
-            const text = generateFromRss2(channel, item);
+            const text = generateMessageFromRss2(channel, item);
 
             latestDate = date;
             posts.push(text);
@@ -78,7 +78,7 @@ function processAtom(lastDate: number, feed: Feed): [string[], number] {
         ok(entry?.published?.["#text"]);
         const date = Date.parse(entry?.published?.["#text"] ?? "");
         if (date > lastDate.valueOf()) {
-            const text = generateFromAtom(feed, entry);
+            const text = generateMessageFromAtom(feed, entry);
 
             latestDate = date;
             posts.push(text);

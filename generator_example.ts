@@ -14,13 +14,13 @@ export function generatePostBody(message: string): string {
     );
 }
 
-export function generateFromAtom(articleInfo: Feed, article: Entry): string {
+export function generateMessageFromAtom(articleInfo: Feed, article: Entry): string {
     console.log(articleInfo.title, article.title);
 
     return `${article?.title?.["#text"] ?? ""}\n\n${article?.link?.map((link) => { link["@_href"] })?.join("\n")}`;
 }
 
-export function generateFromRss2(articleInfo: Channel, article: Item): string {
+export function generateMessageFromRss2(articleInfo: Channel, article: Item): string {
     console.log(articleInfo.title, article.title);
 
     return `${article?.title?.["#text"] ?? ""}\n\n${article?.link?.["#text"]}`;
